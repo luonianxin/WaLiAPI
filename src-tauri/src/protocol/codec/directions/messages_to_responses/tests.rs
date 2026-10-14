@@ -147,18 +147,32 @@ fn request_preserves_interleaved_message_content_order_and_rejects_non_text_tool
 }
 
 #[test]
-fn request_replays_thinking_as_reasoning_text_content() {
+fn request_replays_second_turn_thinking_as_summary_only() {
+    // Responses reasoning input items accept summaries, while `content` is an
+    // output-only field on strict compatible endpoints. Replaying an Anthropic
+    // thinking block as non-empty `content` makes the second request fail with
+    // `Invalid 'input[n].content': array too long ... maximum length 0`.
     let (out, _) = encode_request(
-        &serde_json::json!({"messages":[{
-            "role":"assistant",
-            "content":[{"type":"thinking","thinking":"replay me"}]
-        }]}),
+        &serde_json::json!({"messages":[
+            {"role":"user","content":"hello"},
+            {"role":"assistant","content":[
+                {"type":"thinking","thinking":"replay me"},
+                {"type":"text","text":"Hello!"}
+            ]},
+            {"role":"user","content":"1"}
+        ]}),
         "m",
     )
     .unwrap();
-    assert_eq!(out["input"][0]["type"], "reasoning");
-    assert_eq!(out["input"][0]["content"][0]["type"], "reasoning_text");
-    assert_eq!(out["input"][0]["content"][0]["text"], "replay me");
+    let reasoning = out["input"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "reasoning")
+        .unwrap();
+    assert!(reasoning.get("content").is_none());
+    assert_eq!(reasoning["summary"][0]["type"], "summary_text");
+    assert_eq!(reasoning["summary"][0]["text"], "replay me");
 
     let context = ConversionContext::new("msg_1", "m", false);
     let decoded = decode_response(
